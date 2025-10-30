@@ -8,7 +8,7 @@ set -euo pipefail
 # Configuration
 SRC_API="${SRC_API:-http://127.0.0.1:9090}"
 TGT_API="${TGT_API:-http://127.0.0.1:9092}"
-LIMIT="${ENTITY_LIMIT:-1000}"
+# Note: Pagination is now handled automatically by get_entities() function
 
 # Get script directory and set logs path
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,22 +40,53 @@ get_types() {
     fi
 }
 
-# Function to get entities of a specific type
+# Function to get entities of a specific type with pagination
 get_entities() {
     local url="$1"
     local type="$2"
-    local endpoint="${url}/ngsi-ld/v1/entities?type=${type}&limit=${LIMIT}"
+    local page_limit=1000
+    local offset=0
+    local all_entities="[]"
 
-    local response
-    response=$(curl -s -w "\n%{http_code}" "${endpoint}")
-    local http_code=$(echo "$response" | tail -n1)
-    local body=$(echo "$response" | sed '$d')
+    while true; do
+        local endpoint="${url}/ngsi-ld/v1/entities?type=${type}&limit=${page_limit}&offset=${offset}&orderBy=id"
 
-    if [ "$http_code" -eq 200 ]; then
-        echo "$body"
-    else
-        echo "[]"
-    fi
+        local response
+        response=$(curl -s -w "\n%{http_code}" "${endpoint}")
+        local http_code=$(echo "$response" | tail -n1)
+        local body=$(echo "$response" | sed '$d')
+
+        if [ "$http_code" -ne 200 ]; then
+            break
+        fi
+
+        # Get count of entities in this page
+        local page_count
+        page_count=$(echo "$body" | jq '. | length' 2>/dev/null || echo 0)
+
+        if [ "$page_count" -eq 0 ]; then
+            break
+        fi
+
+        # Merge with all_entities
+        all_entities=$(echo "$all_entities" "$body" | jq -s '.[0] + .[1]' 2>/dev/null || echo "$all_entities")
+
+        # If we got fewer entities than the limit, we're done
+        if [ "$page_count" -lt "$page_limit" ]; then
+            break
+        fi
+
+        # Move to next page
+        offset=$((offset + page_limit))
+
+        # Safety check to avoid infinite loops (max 100 pages = 100k entities)
+        if [ "$offset" -ge 100000 ]; then
+            echo "WARNING: Reached maximum pagination limit (100k entities)" >&2
+            break
+        fi
+    done
+
+    echo "$all_entities"
 }
 
 # Function to extract entity IDs from JSON array
@@ -86,6 +117,8 @@ log_discrepancies() {
     local missing_in_src="$3"
     local src_count="$4"
     local tgt_count="$5"
+    local src_entities="$6"
+    local tgt_entities="$7"
 
     # Create type-specific directory
     local type_dir="${LOGS_DIR}/${type}"
@@ -144,6 +177,14 @@ log_discrepancies() {
             echo "$missing_in_src"
         } > "${extra_file}"
     fi
+
+    # Log all source entities (full JSON)
+    local src_entities_file="${type_dir}/source_entities_all.json"
+    echo "$src_entities" | jq '.' > "${src_entities_file}" 2>/dev/null || echo "$src_entities" > "${src_entities_file}"
+
+    # Log all target entities (full JSON)
+    local tgt_entities_file="${type_dir}/target_entities_all.json"
+    echo "$tgt_entities" | jq '.' > "${tgt_entities_file}" 2>/dev/null || echo "$tgt_entities" > "${tgt_entities_file}"
 }
 
 # Main execution
@@ -153,7 +194,7 @@ main() {
     echo "=================================================="
     echo "Source API: ${SRC_API}"
     echo "Target API: ${TGT_API}"
-    echo "Entity Limit: ${LIMIT}"
+    echo "Pagination: Automatic (fetches all entities)"
     echo "Logs Directory: ${LOGS_DIR}"
     echo "=================================================="
     echo ""
@@ -295,7 +336,7 @@ main() {
 
             # Log discrepancies to files
             echo "  📝 Logging details to: logs/${type}/"
-            log_discrepancies "$type" "$missing_in_tgt" "$missing_in_src" "$src_count" "$tgt_count"
+            log_discrepancies "$type" "$missing_in_tgt" "$missing_in_src" "$src_count" "$tgt_count" "$src_entities" "$tgt_entities"
         fi
 
         echo "  Total entities so far: ${total_src}/${total_tgt}"
@@ -357,6 +398,8 @@ main() {
         echo "  - [type]/summary.txt (per-type summary)"
         echo "  - [type]/missing_in_target.txt (IDs in source but not in target)"
         echo "  - [type]/extra_in_target.txt (IDs in target but not in source)"
+        echo "  - [type]/source_entities_all.json (all source entities for this type)"
+        echo "  - [type]/target_entities_all.json (all target entities for this type)"
         echo "=================================================="
         exit 1
     fi
