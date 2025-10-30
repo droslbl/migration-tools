@@ -53,14 +53,12 @@ This repository provides:
 kubectl port-forward -n tmforum-source svc/scorpio-source 9090:9090
 ```
 - Scorpio: http://localhost:9090
-- TM Forum API: http://localhost:8080
 
 **Target Environment (v1.3.13):**
 ```bash
 kubectl port-forward -n tmforum-target svc/scorpio-target 9092:9090
 ```
-- Scorpio: http://localhost:9091
-- TM Forum API: http://localhost:8081
+- Scorpio: http://localhost:9092
 
 
 ### 2. Run Migration
