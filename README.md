@@ -1,14 +1,7 @@
 # TM Forum Migration
 
-A comprehensive guide and toolset for migrating TM Forum API entities from v0.31.2 to v1.3.13 format using the FIWARE data-migrator, deployed on Kubernetes with Kind, kubectl, and Helm.
+A comprehensive guide and toolset for migrating TM Forum API entities from v0.31.2 to v1.3.13 format using the FIWARE data-migrator.
 
-## Overview
-
-This repository provides:
-- **Environment Setup**: Kind-based Kubernetes clusters for testing
-- **Dual Deployment**: Source (v0.31.2) and target (v1.3.13) environments
-- **FIWARE Data Migrator**: Official tool for entity format transformation
-- **Validation**: Data integrity and API compatibility testing
 
 ## Architecture
 
@@ -35,7 +28,7 @@ This repository provides:
                               │
                     ┌─────────────────────┐
                     │ FIWARE Data Migrator│
-                    │ (Kubernetes Job)    │
+                    │                     │
                     │                     │
                     │ • Reads v0.31.2     │
                     │ • Transforms format │
@@ -66,6 +59,11 @@ kubectl port-forward -n tmforum-target svc/scorpio-target 9092:9090
 ```bash
 # Run FIWARE data migration
 ./scripts/migration/run-data-migration.sh
+```
+
+### 3. Perform validation
+
+```bash
 # Validate Migration
 ./script/validation/entity_compare.sh
 ```
